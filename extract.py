@@ -1,5 +1,6 @@
 import json
 import requests
+import pandas as pd
 
 url = "https://data.cityofchicago.org/resource/4ijn-s7e5.json"
 
@@ -9,7 +10,8 @@ print(response.status_code)
 
 data = response.json()
 
-with open ("chicago_data.json", "w") as file:
-    json.dump(data, file, indent=4)
+df = pd.DataFrame(data)
 
-print(data[0])
+print(df.head())
+print("\n DF Info:")
+print(df.info())
