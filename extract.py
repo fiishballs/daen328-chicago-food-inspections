@@ -1,17 +1,21 @@
 import json
 import requests
 import pandas as pd
+from sodapy import Socrata
 
-url = "https://data.cityofchicago.org/resource/4ijn-s7e5.json"
+def extract_data():
 
-response = requests.get(url)
+    client = Socrata("data.cityofchicago.org", None)
+    all_data = []
 
-print(response.status_code)
+    while True:
+        results = client.get("4ijn-s7e5", limit=2000, offset=len(all_data))
+        if not results:
+            break
+        all_data.extend(results)
+        print(results[0])
+        
 
-data = response.json()
+    results_df = pd.DataFrame.from_records(all_data)
 
-df = pd.DataFrame(data)
-
-print(df.head())
-print("\n DF Info:")
-print(df.info())
+    return results_df
