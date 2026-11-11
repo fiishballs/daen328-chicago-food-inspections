@@ -8,6 +8,7 @@ from transform import (
     clean_facility_type,
     clean_coordinates,
     clean_categories,
+    clean_name,
     remove_duplicate_inspections,
     transform_data,
     generate_quality_report,
@@ -132,10 +133,29 @@ def test_clean_categories():
     assert pd.isna(result["results"].iloc[3])
 
 
+def test_clean_name():
+    sample = pd.DataFrame({
+        "aka_name": [
+            " WHOLE FOODS Market ",
+            "dominos pizza",
+            "",
+            None
+        ]
+    })
+
+    result = clean_name(sample)
+
+    assert result["aka_name"].iloc[0] == "Whole Foods Market"
+    assert result["aka_name"].iloc[1] == "Dominos Pizza"
+    assert pd.isna(result["aka_name"].iloc[2])
+    assert pd.isna(result["aka_name"].iloc[3])
+
+
 def test_remove_duplicate_inspections():
     sample = pd.DataFrame({
         "inspection_id": [1001, 1002, 1001, 1003],
-        "results": ["Pass", "Fail", "Pass", "Pass"]
+        "results": ["Pass", "Fail", "Pass", "Pass"],
+        "violation_code": [93, 19, 93, 19]
     })
 
     result = remove_duplicate_inspections(sample)
@@ -151,6 +171,7 @@ def test_remove_duplicate_inspections():
 def test_transform_data():
     sample = pd.DataFrame({
         "inspection_id": ["1001", "1002", "1001"],
+        "aka_name": ["PIZZA HUT", "Popeyes", "PIZZA HUT"],
         "inspection_date": [
             "2026-10-14",
             "2026-10-15",
@@ -164,7 +185,12 @@ def test_transform_data():
         "latitude": ["41.89", None, "41.89"],
         "longitude": ["-87.67", None, "-87.67"],
         "risk": ["RISK 1 (HIGH)", "risk 2 (medium)", "RISK 1 (HIGH)"],
-        "results": ["PASS", "FAIL", "PASS"]
+        "results": ["PASS", "FAIL", "PASS"],
+        "violations": [
+            "47. FOOD & NON-FOOD CONTACT SURFACES CLEANABLE, PROPERLY DESIGNED, CONSTRUCTED & USED - Comments: FOUND THE CAULK AROUND THE HANDWASHING SINK IN THE STAFF'S TOILETROOM CRACKED.",
+            "57. ALL FOOD EMPLOYEES HAVE FOOD HANDLER TRAINING - Comments: OBSERVED NO FOOD HANDLER CERTIFICATES PROVIDED ON THE PREMISES.",
+            "47. FOOD & NON-FOOD CONTACT SURFACES CLEANABLE, PROPERLY DESIGNED, CONSTRUCTED & USED - Comments: FOUND THE CAULK AROUND THE HANDWASHING SINK IN THE STAFF'S TOILETROOM CRACKED."
+        ]
     })
 
     result = transform_data(sample)
@@ -176,6 +202,11 @@ def test_transform_data():
     assert pd.api.types.is_datetime64_any_dtype(
         result["inspection_date"]
     )
+
+    assert result["aka_name"].tolist() == [
+        "Popeyes",
+        "Pizza Hut"
+    ]
 
     assert result["facility_type"].tolist() == [
         "Unknown",
@@ -222,7 +253,8 @@ def test_remove_duplicates_with_missing_ids():
             "Grocery Store",
             "Restaurant",
             "Bakery"
-        ]
+        ],
+        "violation_code": [49, 20, 10, 49, 24]
     })
 
     result = remove_duplicate_inspections(sample)
@@ -242,12 +274,14 @@ def test_remove_duplicates_with_missing_ids():
 def test_transform_data_logging(caplog):
     sample = pd.DataFrame({
         "inspection_id": ["1001", "1001"],
+        "aka_name": ["Cheesecake Factory", "McDonalds"],
         "inspection_date": ["2026-10-14", "2026-10-14"],
         "facility_type": ["Restaurant", "Restaurant"],
         "latitude": ["41.89", "41.89"],
         "longitude": ["-87.67", "-87.67"],
         "risk": ["Risk 1 (High)", "Risk 1 (High)"],
-        "results": ["Pass", "Pass"]
+        "results": ["Pass", "Pass"],
+        "violations": ["", ""]
     })
 
     with caplog.at_level(logging.INFO):

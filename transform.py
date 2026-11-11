@@ -1,5 +1,6 @@
 import pandas as pd
 import logging
+import re
 
 def clean_inspection_ids(df):
     """Convert inspection IDs into nullable integers."""
@@ -71,6 +72,53 @@ def clean_categories(df):
     return cleaned
 
 
+def clean_name(df):
+    """Standardize establishment name."""
+    cleaned = df.copy()
+
+    cleaned["aka_name"] = (
+        cleaned["aka_name"]
+        .astype("string")
+        .str.strip()
+        .str.title()
+        .replace("", pd.NA)
+    )
+
+    return cleaned
+
+
+def clean_violations(df):
+    """Standardize and separate violations into multiple rows."""
+    cleaned = df.copy()
+
+    def split_violations(violations):
+        if pd.isna(violations):
+            return violations
+    
+        return violations.split("|")
+
+    cleaned["violations"] = cleaned["violations"].apply(split_violations)
+    cleaned = cleaned.explode("violations")
+
+    def parse_violations(violation):
+        if pd.isna(violation) or violation == "":
+            return pd.Series({"violation_code": pd.NA, "violation_title": pd.NA, "violation_comment": pd.NA})
+    
+        code = re.search(r'\d+', violation)
+        comment_start = re.search("comments:", violation, flags=re.IGNORECASE)
+        if comment_start:
+            violation_title = violation[code.end()+1 : comment_start.start() - 3].strip().title()
+            comment = violation[comment_start.end():].strip().capitalize()
+        else:
+            violation_title = violation[code.end()+1 :].strip().title()
+            comment = pd.NA
+    
+        return pd.Series({"violation_code": code.group(), "violation_title": violation_title, "violation_comment": comment})
+
+    cleaned[["violation_code", "violation_title", "violation_comment"]] = cleaned["violations"].apply(parse_violations)
+    return cleaned
+
+
 def remove_duplicate_inspections(df):
     """Remove duplicate known IDs while preserving missing IDs."""
     cleaned = df.copy()
@@ -78,7 +126,7 @@ def remove_duplicate_inspections(df):
     has_id = cleaned["inspection_id"].notna()
 
     known_ids = cleaned[has_id].drop_duplicates(
-        subset=["inspection_id"],
+        subset=["inspection_id", "violation_code"],
         keep="last"
     )
 
@@ -99,6 +147,8 @@ def transform_data(df):
     cleaned = clean_facility_type(cleaned)
     cleaned = clean_coordinates(cleaned)
     cleaned = clean_categories(cleaned)
+    cleaned = clean_name(cleaned)
+    cleaned = clean_violations(cleaned)
     cleaned = remove_duplicate_inspections(cleaned)
 
     report = generate_quality_report(df, cleaned)
