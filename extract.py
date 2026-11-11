@@ -2,16 +2,19 @@ import json
 import requests
 import pandas as pd
 
-url = "https://data.cityofchicago.org/resource/4ijn-s7e5.json"
+def extract_data():
+    url = "https://data.cityofchicago.org/resource/4ijn-s7e5.json"
 
-response = requests.get(url)
+    response = requests.get(url)
 
-print(response.status_code)
+    print(response.status_code)
 
-data = response.json()
+    data = response.json()
 
-df = pd.DataFrame(data)
+    df = pd.DataFrame(data)
 
-print(df.head())
-print("\n DF Info:")
-print(df.info())
+    print(df.head())
+    print("\n DF Info:")
+    print(df.info())
+
+    return df
