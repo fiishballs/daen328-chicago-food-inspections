@@ -3,7 +3,7 @@ import logging
 import requests
 import pandas as pd
 
-from transform import transform_data
+from etl.transform import transform_data
 
 # Display INFO-level logs in the terminal
 logging.basicConfig(

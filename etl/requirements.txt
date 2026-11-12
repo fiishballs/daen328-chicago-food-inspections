@@ -1,0 +1,6 @@
+pandas==2.2.3
+requests==2.34.2
+sodapy==2.2.0
+SQLAlchemy==2.0.36
+psycopg2-binary==2.9.10
+python-dotenv==1.2.4

@@ -1,12 +1,12 @@
-import os
+import os, sys
 import pandas as pd
 import psycopg2
 import logging
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
-from extract import extract_data
-from transform import transform_data
+from etl.extract import extract_data
+from etl.transform import transform_data
 
 load_dotenv()
 
@@ -17,6 +17,9 @@ DB_HOST = os.environ["DB_HOST"]
 DB_PORT = os.environ["DB_PORT"]
 DB_PARAMS = {"dbname": DB_NAME, "user": DB_USER, "password": DB_PASSWORD,
              "host": DB_HOST, "port": DB_PORT}
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def clean(value):
@@ -72,12 +75,12 @@ def load_inspections(df, conn):
                        VALUES (%s, %s, %s) ON CONFLICT (inspection_id, violation_code) DO NOTHING;''',
                     (row["inspection_id"], row["violation_code"], clean(row["violation_comment"])))
 
-    logging.info("Load finished and committed.")
+    logger.info("Load finished and committed.")
 
 
 def main():
 
-    data = extract_data()
+    data = extract_data(1000, True)
     df = transform_data(data)
 
     # reject rows that don't meet NOT NULL constraints
@@ -85,16 +88,11 @@ def main():
                   | df["inspection_date"].isna() | df["results"].isna()
     valid = df[~reject_rows].copy()
 
-    logging.info(f"Rows read: {len(df)}")
-    logging.info(f"Good rows: {len(valid)}")
-    logging.info(f"Rejected rows: {len(reject_rows)}")
+    logger.info(f"Rows read: {len(df)}")
+    logger.info(f"Good rows: {len(valid)}")
 
     engine = create_engine(f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
     conn = psycopg2.connect(**DB_PARAMS)
-
-    # load database
-    load_inspections(valid, conn)
-    conn.close()
 
     # make sure load results aligned with expectations
     TABLES = ["establishments", "inspections", "violations", "inspection_violations"]
@@ -103,20 +101,26 @@ def main():
         with engine.connect() as conn:
             return {t: conn.execute(text(f"SELECT COUNT(*) FROM {schema}.{t};")).scalar() for t in tables}
 
-    run_counts = table_counts("public", TABLES)
+    before_counts = table_counts("public", TABLES)
 
-    expected_counts = {
-        "establishments": valid[["aka_name", "address"]].apply(tuple, axis=1).nunique(),
-        "inspections": valid["inspection_id"].nunique(),
-        "violations": valid["violation_code"].dropna().nunique(),
-        "inspection_violations": valid[["inspection_id", "violation_code"]].dropna(subset=["violation_code"]).apply(tuple, axis=1).nunique(),
-    }
+    # load database
+    load_inspections(valid, conn)
+    conn.close()
 
-    logging.info(f"Expected establishments count: {expected_counts["establishments"]}   Actual count: {run_counts["establishments"]}")
-    logging.info(f"Expected inspections count: {expected_counts["inspections"]}   Actual count: {run_counts["inspections"]}")
-    logging.info(f"Expected violations count: {expected_counts["violations"]}   Actual count: {run_counts["violations"]}")
-    logging.info(f"Expected inspection_violations count: {expected_counts["inspection_violations"]}   Actual count: {run_counts["inspection_violations"]}")
+    after_counts = table_counts("public", TABLES)
+
+    # count number of added rows for each table
+    added_vals = {}
+    for t, c in after_counts.items():
+        added_vals[t] = c - before_counts[t]
+
+    run_results = pd.DataFrame({"before": before_counts, "after": after_counts, "added": added_vals})
+    logger.info(run_results)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        logger.error(f"LOAD FAILED: {exc}")
+        sys.exit(1)
