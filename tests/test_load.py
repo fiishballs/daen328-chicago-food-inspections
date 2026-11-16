@@ -13,6 +13,9 @@ load_dotenv()
 DB_USER = os.environ["DB_USER"]
 DB_PASSWORD = os.environ["DB_PASSWORD"]
 
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = int(os.getenv("DB_PORT", "5432"))
+
 sample_df = pd.DataFrame([
     {
         "inspection_id": 100,
@@ -75,8 +78,8 @@ def db_connection():
     db_name = "load_test"
 
     conn = psycopg2.connect(
-        host="localhost",
-        port=5432,
+        host=DB_HOST,
+        port=DB_PORT,
         database="postgres",
         user=DB_USER,
         password=DB_PASSWORD
@@ -103,11 +106,11 @@ def db_connection():
 
 
     conn = psycopg2.connect(
-        host="localhost",
+        host=DB_HOST,
         database=db_name,
         user=DB_USER,
         password=DB_PASSWORD,
-        port=5432
+        port=DB_PORT
     )
 
     conn.autocommit = False

@@ -14,7 +14,9 @@ services:
       retries: 20
 
   etl:
-    build: ./etl
+    build: 
+      context: .
+      dockerfile: ./etl/Dockerfile
     depends_on:
       db: { condition: service_healthy }
     environment:
