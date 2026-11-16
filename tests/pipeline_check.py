@@ -27,6 +27,36 @@ raw_df = pd.DataFrame(response.json())
 
 print("\nOriginal shape:", raw_df.shape)
 
+
+from etl.transform import clean_violations
+
+# Examine repeated violation codes before deduplication
+expanded_df = clean_violations(raw_df)
+
+duplicates = expanded_df[
+    expanded_df.duplicated(
+        subset=["inspection_id", "violation_code"],
+        keep=False
+    )
+].copy()
+
+print("\n===== DUPLICATE VIOLATION ANALYSIS =====")
+print("Rows in duplicate groups:", len(duplicates))
+
+print(
+    "Distinct inspection/violation pairs:",
+    duplicates[["inspection_id", "violation_code"]]
+    .drop_duplicates()
+    .shape[0]
+)
+
+print("\nExample repeated violations:")
+print(
+    duplicates[
+        ["inspection_id", "violation_code", "violation_comment"]
+    ].head(10).to_string(index=False)
+)
+
 # Run our transformation pipeline
 cleaned_df = transform_data(raw_df)
 
