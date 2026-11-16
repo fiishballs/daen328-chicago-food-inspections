@@ -9,9 +9,12 @@ from etl.transform import (
     clean_coordinates,
     clean_categories,
     clean_name,
+    clean_violations,
     remove_duplicate_inspections,
     transform_data,
     generate_quality_report,
+
+    
 )
 
 
@@ -293,3 +296,127 @@ def test_transform_data_logging(caplog):
     assert "Rows after cleaning: 1" in caplog.text
     assert "Duplicates removed: 1" in caplog.text
     assert "Data transformation completed" in caplog.text
+
+def test_clean_violations():
+    sample = pd.DataFrame({
+        "inspection_id": [1001, 1002, 1003],
+        "violations": [
+            "10. HANDWASHING - Comments: Missing soap | "
+            "11. STORAGE - Comments: Incorrect temperature",
+            "No code provided",
+            None
+        ]
+    })
+
+    result = clean_violations(sample)
+
+    # First inspection has two separate violations
+    assert len(result) == 4
+
+    first_inspection = result[
+        result["inspection_id"] == 1001
+    ]
+
+    assert first_inspection["violation_code"].tolist() == [
+        "10", "11"
+    ]
+
+    # Malformed violations should not crash the pipeline
+    malformed = result[
+        result["inspection_id"] == 1002
+    ]
+
+    assert pd.isna(malformed["violation_code"].iloc[0])
+
+    # Missing violations should remain missing
+    missing = result[
+        result["inspection_id"] == 1003
+    ]
+
+    assert pd.isna(missing["violation_code"].iloc[0])
+
+def test_quality_report_after_violation_expansion(caplog):
+    sample = pd.DataFrame({
+        "inspection_id": ["1001", "1002", "1001"],
+        "inspection_date": [
+            "2026-10-14",
+            "2026-10-15",
+            "2026-10-14"
+        ],
+        "aka_name": ["Restaurant A", "Restaurant B", "Restaurant A"],
+        "facility_type": ["Restaurant"] * 3,
+        "latitude": ["41.89"] * 3,
+        "longitude": ["-87.67"] * 3,
+        "risk": ["Risk 1 (High)"] * 3,
+        "results": ["Pass"] * 3,
+        "violations": [
+            "10. HANDWASHING | 11. STORAGE",
+            None,
+            "10. HANDWASHING | 11. STORAGE"
+        ]
+    })
+
+    with caplog.at_level(logging.INFO):
+        result = transform_data(sample)
+    assert len(result) == 3
+
+    report = generate_quality_report(
+        sample,
+        result,
+        duplicates_removed=2
+    )
+
+    assert report["rows_received"] == 3
+    assert report["rows_after_cleaning"] == 3
+    assert report["duplicates_removed"] == 2
+    assert "Duplicates removed: 2" in caplog.text
+
+def test_missing_value_summary():
+    original = pd.DataFrame({
+        "inspection_id": [1001, 1002],
+        "inspection_date": ["2026-10-14", "2026-10-15"],
+        "facility_type": ["Restaurant", None],
+        "latitude": [41.89, None],
+        "longitude": [-87.67, None],
+        "risk": ["Risk 1 (High)", None],
+        "results": ["Pass", "Fail"],
+        "aka_name": ["Restaurant A", "Restaurant B"]
+    })
+
+    cleaned = original.copy()
+    cleaned["facility_type"] = cleaned["facility_type"].fillna("Unknown")
+
+    report = generate_quality_report(original, cleaned)
+
+    assert report["missing_summary"]["facility_type"]["before"] == 1
+    assert report["missing_summary"]["facility_type"]["after"] == 0
+
+    assert report["missing_summary"]["latitude"]["after"] == 1
+    assert report["missing_summary"]["risk"]["after"] == 1
+
+def test_combine_duplicate_violation_comments():
+    sample = pd.DataFrame({
+        "inspection_id": [1001, 1001, 1001, 1002],
+        "violation_code": ["55", "55", "55", "47"],
+        "violation_comment": [
+            "Water-stained ceiling tiles",
+            "Dirty floors and mouse droppings",
+            "Water-stained ceiling tiles",
+            "Improper storage"
+        ]
+    })
+
+    result = remove_duplicate_inspections(sample)
+
+    assert len(result) == 2
+
+    combined = result.loc[
+        result["inspection_id"] == 1001,
+        "violation_comment"
+    ].iloc[0]
+
+    assert "Water-stained ceiling tiles" in combined
+    assert "Dirty floors and mouse droppings" in combined
+
+    # Identical comments should not be repeated
+    assert combined.count("Water-stained ceiling tiles") == 1
