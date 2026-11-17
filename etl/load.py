@@ -29,8 +29,27 @@ def clean(value):
         return value.item()
     return value
 
+def get_watermark(conn):
+    """Return the last successfully loaded API update timestamp."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT last_updated_at
+            FROM public.etl_watermark
+            WHERE pipeline_name = %s
+        """, ("chicago_food_inspections",))
 
-def load_inspections(df, conn):
+        result = cur.fetchone()
+
+    if result is None:
+        logger.info("No watermark found. Full extraction required.")
+        return None
+
+    watermark = result[0]
+    logger.info("Previous successful watermark: %s", watermark)
+
+    return watermark
+
+def load_inspections(df, conn, new_watermark=None):
     with conn:
         with conn.cursor() as cur:
 
@@ -40,8 +59,16 @@ def load_inspections(df, conn):
             for _, row in establishments.iterrows():
                 cur.execute(
                     '''INSERT INTO public.establishments (name, street_address, city, state, zip, 
-                       facility_type, latitude, longitude) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                       ON CONFLICT (name, street_address) DO NOTHING;''',
+                       facility_type, latitude, longitude) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
+                        ON CONFLICT (name, street_address)
+                        DO UPDATE SET
+                            city = EXCLUDED.city,
+                            state = EXCLUDED.state,
+                            zip = EXCLUDED.zip,
+                            facility_type = EXCLUDED.facility_type,
+                            latitude = EXCLUDED.latitude,
+                            longitude = EXCLUDED.longitude;
+                        ''',
                     (row["aka_name"], clean(row["address"]), clean(row["city"]), clean(row["state"]),
                      clean(row["zip"]), clean(row["facility_type"]), clean(row["latitude"]), clean(row["longitude"])))
 
@@ -56,8 +83,14 @@ def load_inspections(df, conn):
                 est_id = establishment_ids[(row["aka_name"], row["address"])]
                 cur.execute(
                     '''INSERT INTO public.inspections (inspection_id, establishment_id, 
-                       inspection_date, risk, result) VALUES (%s, %s, %s, %s, %s)
-                       ON CONFLICT (inspection_id) DO NOTHING;''',
+                       inspection_date, risk, result) VALUES (%s, %s, %s, %s, %s)     
+                        ON CONFLICT (inspection_id)
+                        DO UPDATE SET
+                            establishment_id = EXCLUDED.establishment_id,
+                            inspection_date = EXCLUDED.inspection_date,
+                            risk = EXCLUDED.risk,
+                            result = EXCLUDED.result;
+                        ''',
                     (row["inspection_id"], est_id, row["inspection_date"], clean(row["risk"]), row["results"]))
 
             # violations table
@@ -65,62 +98,148 @@ def load_inspections(df, conn):
             for _, row in violations.iterrows():
                 cur.execute(
                     '''INSERT INTO public.violations (violation_code, description)
-                       VALUES (%s, %s) ON CONFLICT (violation_code) DO NOTHING;''',
+                       VALUES (%s, %s) ON CONFLICT (violation_code)
+                       DO UPDATE SET
+                           description = EXCLUDED.description;
+                       ''',
                     (row["violation_code"], row["violation_title"]))
 
             # inspection_violations table
             for _, row in df.dropna(subset=["violation_code"]).iterrows():
                 cur.execute(
                     '''INSERT INTO public.inspection_violations (inspection_id, violation_code, comment)
-                       VALUES (%s, %s, %s) ON CONFLICT (inspection_id, violation_code) DO NOTHING;''',
+                       VALUES (%s, %s, %s) ON CONFLICT (inspection_id, violation_code)
+                       DO UPDATE SET
+                           comment = EXCLUDED.comment;
+                       ''',
                     (row["inspection_id"], row["violation_code"], clean(row["violation_comment"])))
+                
+            # Save checkpoint in the same transaction as the data load.
+            if new_watermark is not None:
+                cur.execute(
+                    """
+                    INSERT INTO public.etl_watermark
+                        (pipeline_name, last_updated_at)
+                    VALUES (%s, %s)
+                    ON CONFLICT (pipeline_name)
+                    DO UPDATE SET
+                        last_updated_at = GREATEST(
+                            public.etl_watermark.last_updated_at,
+                            EXCLUDED.last_updated_at
+                        );
+                    """,
+                    ("chicago_food_inspections", new_watermark),
+                )
+
 
     logger.info("Load finished and committed.")
 
-
 def main():
-
-    data = extract_data(1000, True)
-    df = transform_data(data)
-
-    # reject rows that don't meet NOT NULL constraints
-    reject_rows = df["aka_name"].isna() | df["inspection_id"].isna() \
-                  | df["inspection_date"].isna() | df["results"].isna()
-    valid = df[~reject_rows].copy()
-
-    logger.info(f"Rows read: {len(df)}")
-    logger.info(f"Good rows: {len(valid)}")
-
-    engine = create_engine(f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
     conn = psycopg2.connect(**DB_PARAMS)
 
-    # make sure load results aligned with expectations
-    TABLES = ["establishments", "inspections", "violations", "inspection_violations"]
+    try:
+        # Step 1: Read the last successful checkpoint.
+        previous_watermark = get_watermark(conn)
+        conn.rollback()  # End the read transaction.
 
-    def table_counts(schema, tables):
-        with engine.connect() as conn:
-            return {t: conn.execute(text(f"SELECT COUNT(*) FROM {schema}.{t};")).scalar() for t in tables}
+        if previous_watermark is None:
+            logger.info("Starting initial full extraction.")
+            updated_since = None
+        else:
+            logger.info("Starting incremental extraction.")
 
-    before_counts = table_counts("public", TABLES)
+            # Convert PostgreSQL timestamp to Socrata UTC format.
+            updated_since = (
+                pd.Timestamp(previous_watermark)
+                .tz_convert("UTC")
+                .strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            )
 
-    # load database
-    load_inspections(valid, conn)
-    conn.close()
+        # Step 2: Extract records.
+        # Never accept partial downloads for a checkpointed pipeline.
+        data = extract_data(
+            limit=1000,
+            return_partial=False,
+            updated_since=updated_since
+        )
 
-    after_counts = table_counts("public", TABLES)
+        if data.empty:
+            logger.info("No new or updated records. Nothing to load.")
+            return
 
-    # count number of added rows for each table
-    added_vals = {}
-    for t, c in after_counts.items():
-        added_vals[t] = c - before_counts[t]
+        logger.info("API records extracted: %d", len(data))
 
-    run_results = pd.DataFrame({"before": before_counts, "after": after_counts, "added": added_vals})
-    logger.info(run_results)
+        # Step 3: Calculate checkpoint from API metadata.
+        if ":updated_at" not in data.columns:
+            raise ValueError("API update timestamps are missing.")
 
+        new_watermark = pd.to_datetime(
+            data[":updated_at"],
+            utc=True,
+            errors="raise"
+        ).max().to_pydatetime()
+
+        # Step 4: Transform.
+        df = transform_data(data)
+
+        reject_rows = (
+            df["aka_name"].isna()
+            | df["inspection_id"].isna()
+            | df["inspection_date"].isna()
+            | df["results"].isna()
+        )
+
+        valid = df[~reject_rows].copy()
+
+        logger.info("Transformed rows: %d", len(df))
+        logger.info("Valid rows: %d", len(valid))
+        logger.info("Rejected rows: %d", int(reject_rows.sum()))
+
+        # Do not checkpoint data that was not fully accepted.
+        
+        rejected_count = int(reject_rows.sum())
+
+        if rejected_count > 0:
+            logger.warning(
+                "Rejected %d transformed rows due to missing "
+                "required fields. These rows will not be loaded.",
+                rejected_count
+            )
+
+            rejected_ids = (
+                df.loc[reject_rows, "inspection_id"]
+                .dropna()
+                .unique()
+            )
+
+            logger.warning(
+                "Rejected inspection IDs (first 20): %s",
+                rejected_ids[:20].tolist()
+            )
+
+        if valid.empty:
+            raise ValueError(
+                "No valid rows to load. Watermark will not advance."
+            )
+
+        # Step 5: Load data and checkpoint in one transaction.
+        load_inspections(
+            valid,
+            conn,
+            new_watermark=new_watermark
+        )
+
+        logger.info(
+            "ETL completed. New watermark: %s",
+            new_watermark
+        )
+
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception as exc:
-        logger.error(f"LOAD FAILED: {exc}")
+    except Exception:
+        logger.exception("ETL pipeline failed")
         sys.exit(1)
