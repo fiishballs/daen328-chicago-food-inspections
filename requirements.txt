@@ -1,0 +1,9 @@
+pandas>=2.2,<3
+requests==2.34.2
+sodapy==2.2.0
+SQLAlchemy>=2.0,<3
+psycopg2-binary>=2.9,<3
+python-dotenv==1.2.4
+streamlit>=1.40,<2
+plotly>=6.0,<7
+pytest>=9.0,<10
