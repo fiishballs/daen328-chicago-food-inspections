@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv
 from psycopg2 import sql
 
-from etl.load import load_inspections
+from load import load_inspections
 
 load_dotenv()
 
@@ -122,7 +122,7 @@ def db_connection():
                 CREATE SCHEMA public;
             """)
 
-            with open("db/init/01_schema.sql", "r") as f:
+            with open("db/01_schema.sql", "r") as f:
                 cur.execute(f.read())
 
         conn.commit()

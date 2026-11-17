@@ -7,16 +7,15 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./db:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 3s
       retries: 20
 
   etl:
-    build: 
-      context: .
-      dockerfile: ./etl/Dockerfile
+    build: .
+    command: python load.py
     depends_on:
       db: { condition: service_healthy }
     environment:
@@ -27,7 +26,7 @@ services:
       DB_PORT: ${DB_PORT}
 
   app:
-    build: ./app
+    build: .
     depends_on:
       etl: { condition: service_completed_successfully }
     environment:
@@ -38,7 +37,6 @@ services:
       DB_PORT: ${DB_PORT}
     ports:
       - "8501:8501"
-    command: streamlit run app.py --server.address=0.0.0.0
 
 volumes:
   pgdata:

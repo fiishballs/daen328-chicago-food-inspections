@@ -5,8 +5,8 @@ import logging
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
-from etl.extract import extract_data
-from etl.transform import transform_data
+from extract import extract_data
+from transform import transform_data
 
 load_dotenv()
 
@@ -116,6 +116,7 @@ def main():
 
     run_results = pd.DataFrame({"before": before_counts, "after": after_counts, "added": added_vals})
     logger.info(run_results)
+
 
 
 if __name__ == "__main__":
