@@ -5,8 +5,8 @@ import logging
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
-from etl.extract import extract_data
-from etl.transform import transform_data
+from extract import extract_data
+from transform import transform_data
 
 load_dotenv()
 
@@ -59,16 +59,21 @@ def load_inspections(df, conn, new_watermark=None):
             for _, row in establishments.iterrows():
                 cur.execute(
                     '''INSERT INTO public.establishments (name, street_address, city, state, zip, 
-                       facility_type, latitude, longitude) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
-                        ON CONFLICT (name, street_address)
-                        DO UPDATE SET
+                       facility_type, latitude, longitude) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (name, street_address) DO UPDATE SET
                             city = EXCLUDED.city,
                             state = EXCLUDED.state,
                             zip = EXCLUDED.zip,
                             facility_type = EXCLUDED.facility_type,
                             latitude = EXCLUDED.latitude,
-                            longitude = EXCLUDED.longitude;
-                        ''',
+                            longitude = EXCLUDED.longitude
+                       WHERE
+                            establishments.city IS DISTINCT FROM EXCLUDED.city OR
+                            establishments.state IS DISTINCT FROM EXCLUDED.state OR
+                            establishments.zip IS DISTINCT FROM EXCLUDED.zip OR
+                            establishments.facility_type IS DISTINCT FROM EXCLUDED.facility_type OR
+                            establishments.latitude IS DISTINCT FROM EXCLUDED.latitude OR
+                            establishments.longitude IS DISTINCT FROM EXCLUDED.longitude;''',
                     (row["aka_name"], clean(row["address"]), clean(row["city"]), clean(row["state"]),
                      clean(row["zip"]), clean(row["facility_type"]), clean(row["latitude"]), clean(row["longitude"])))
 
@@ -83,14 +88,17 @@ def load_inspections(df, conn, new_watermark=None):
                 est_id = establishment_ids[(row["aka_name"], row["address"])]
                 cur.execute(
                     '''INSERT INTO public.inspections (inspection_id, establishment_id, 
-                       inspection_date, risk, result) VALUES (%s, %s, %s, %s, %s)     
-                        ON CONFLICT (inspection_id)
-                        DO UPDATE SET
+                       inspection_date, risk, result) VALUES (%s, %s, %s, %s, %s)
+                       ON CONFLICT (inspection_id) DO UPDATE SET
                             establishment_id = EXCLUDED.establishment_id,
                             inspection_date = EXCLUDED.inspection_date,
                             risk = EXCLUDED.risk,
-                            result = EXCLUDED.result;
-                        ''',
+                            result = EXCLUDED.result
+                       WHERE
+                            inspections.establishment_id IS DISTINCT FROM EXCLUDED.establishment_id OR
+                            inspections.inspection_date IS DISTINCT FROM EXCLUDED.inspection_date OR
+                            inspections.risk IS DISTINCT FROM EXCLUDED.risk OR
+                            inspections.result IS DISTINCT FROM EXCLUDED.result;''',
                     (row["inspection_id"], est_id, row["inspection_date"], clean(row["risk"]), row["results"]))
 
             # violations table
@@ -98,20 +106,20 @@ def load_inspections(df, conn, new_watermark=None):
             for _, row in violations.iterrows():
                 cur.execute(
                     '''INSERT INTO public.violations (violation_code, description)
-                       VALUES (%s, %s) ON CONFLICT (violation_code)
-                       DO UPDATE SET
-                           description = EXCLUDED.description;
-                       ''',
+                       VALUES (%s, %s) ON CONFLICT (violation_code) DO UPDATE SET
+                            description = EXCLUDED.description
+                       WHERE
+                            violations.description IS DISTINCT FROM EXCLUDED.description;''',
                     (row["violation_code"], row["violation_title"]))
 
             # inspection_violations table
             for _, row in df.dropna(subset=["violation_code"]).iterrows():
                 cur.execute(
                     '''INSERT INTO public.inspection_violations (inspection_id, violation_code, comment)
-                       VALUES (%s, %s, %s) ON CONFLICT (inspection_id, violation_code)
-                       DO UPDATE SET
-                           comment = EXCLUDED.comment;
-                       ''',
+                       VALUES (%s, %s, %s) ON CONFLICT (inspection_id, violation_code) DO UPDATE SET
+                            comment = EXCLUDED.comment
+                       WHERE
+                            inspection_violations.comment IS DISTINCT FROM EXCLUDED.comment;''',
                     (row["inspection_id"], row["violation_code"], clean(row["violation_comment"])))
                 
             # Save checkpoint in the same transaction as the data load.
@@ -236,6 +244,7 @@ def main():
 
     finally:
         conn.close()
+
 
 if __name__ == "__main__":
     try:

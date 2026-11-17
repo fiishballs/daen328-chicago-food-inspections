@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from psycopg2 import sql
 from datetime import datetime, timezone
 
-from etl.load import load_inspections, get_watermark
+from load import load_inspections, get_watermark
 
 load_dotenv()
 
@@ -123,7 +123,7 @@ def db_connection():
                 CREATE SCHEMA public;
             """)
 
-            with open("db/init/01_schema.sql", "r") as f:
+            with open("db/01_schema.sql", "r") as f:
                 cur.execute(f.read())
 
         conn.commit()
@@ -279,3 +279,28 @@ def test_watermark_failure_rolls_back_load(db_connection):
 
         cur.execute("SELECT COUNT(*) FROM public.etl_watermark")
         assert cur.fetchone()[0] == 0
+
+def test_load_upsert(db_connection):
+
+    changed_df = sample_df.copy()
+    changed_df.loc[changed_df["inspection_id"] == 101, "risk"] = "Risk 2 (Medium)"
+    changed_df.loc[changed_df["inspection_id"] == 101, "zip"] = "62040"
+    changed_df.loc[changed_df["inspection_id"] == 101, "violation_title"] = "Plumbing Installed"
+    changed_df.loc[changed_df["inspection_id"] == 101, "violation_comment"] = "Manager corrected issue"
+
+    load_inspections(sample_df, db_connection)
+    load_inspections(changed_df, db_connection)
+
+    cur = db_connection.cursor()
+
+    cur.execute("SELECT risk FROM public.inspections WHERE inspection_id = 101")
+    assert cur.fetchone()[0] == "Risk 2 (Medium)"
+
+    cur.execute("SELECT zip FROM public.establishments WHERE name = 'Cheesecake Factory'")
+    assert cur.fetchone()[0] == "62040"
+
+    cur.execute("SELECT description FROM public.violations WHERE violation_code = 51")
+    assert cur.fetchone()[0] == "Plumbing Installed"
+
+    cur.execute("SELECT comment FROM public.inspection_violations WHERE inspection_id = 101")
+    assert cur.fetchone()[0] == "Manager corrected issue"

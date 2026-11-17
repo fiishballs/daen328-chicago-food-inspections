@@ -23,6 +23,12 @@ DAEN 328 term project: an ETL pipeline, PostgreSQL database, and Streamlit dashb
 
 To remove the PostgreSQL volume and reload all data from scratch, use `docker compose down -v`. This permanently deletes the local project database.
 
+## Database structure
+
+The database contains four tables: establishments, inspections, violations, and inspection_violations. The ER Diagram for the database is shown below.
+
+![Database ERD](images/database-erd.png)
+
 ## Dashboard questions
 
 The dashboard filters by date, result, risk classification, facility type, ZIP code, and restaurant name. It answers:
