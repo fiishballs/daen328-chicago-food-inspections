@@ -69,3 +69,9 @@ ALTER TABLE IF EXISTS public.inspection_violations
     NOT VALID;
 
 END;
+
+-- Track the last successfully processed API update
+CREATE TABLE IF NOT EXISTS public.etl_watermark (
+    pipeline_name TEXT PRIMARY KEY,
+    last_updated_at TIMESTAMPTZ NOT NULL
+);

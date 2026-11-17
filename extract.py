@@ -25,7 +25,12 @@ def fetch_page(client, limit, offset):
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             # Ordering by :id keeps pagination stable between requests
-            return client.get(DATASET_ID, limit=limit, offset=offset, order=":id")
+            return client.get(DATASET_ID,
+                              select=":*, *",
+                              limit=limit,
+                              offset=offset,
+                              order=":id"
+            )
 
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
@@ -45,7 +50,7 @@ def fetch_page(client, limit, offset):
     raise ExtractionError(f"Failed to fetch offset {offset} after {MAX_RETRIES} attempts")
 
 
-def extract_data(limit, return_partial=False):
+def extract_data(limit, return_partial=False, updated_since=None):
     """
     Download every record from the dataset, `limit` rows at a time.
 
@@ -61,7 +66,17 @@ def extract_data(limit, return_partial=False):
     try:
         while True:
             try:
-                results = fetch_page(client, limit, offset=len(all_data))
+                if updated_since is None:
+                    results = fetch_page(client, limit, offset=len(all_data))
+                else:
+                    results = client.get(
+                        DATASET_ID,
+                        select=":*, *",
+                        where=f":updated_at >= '{updated_since}'",
+                        order=":updated_at ASC, :id ASC",
+                        limit=limit,
+                        offset=len(all_data)
+                    )
             except ExtractionError as e:
                 if return_partial and all_data:
                     logger.error("%s. Returning %d partial records.", e, len(all_data))

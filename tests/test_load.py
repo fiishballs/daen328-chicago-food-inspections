@@ -5,8 +5,9 @@ import psycopg2
 import os
 from dotenv import load_dotenv
 from psycopg2 import sql
+from datetime import datetime, timezone
 
-from load import load_inspections
+from load import load_inspections, get_watermark
 
 load_dotenv()
 
@@ -172,6 +173,112 @@ def test_load_idempotency(db_connection):
     cur.execute("SELECT COUNT(*) FROM public.inspection_violations")
     assert cur.fetchone()[0] == 2
 
+def test_load_updates_existing_records(db_connection):
+    # First, load the original sample records.
+    load_inspections(sample_df, db_connection)
+
+    # Simulate changes received from the API.
+    updated_df = sample_df.copy()
+    updated_df.loc[
+        updated_df["inspection_id"] == 101, "results"
+    ] = "Pass"
+
+    updated_df.loc[
+        updated_df["inspection_id"] == 101, "facility_type"
+    ] = "Grocery Store"
+
+    updated_df.loc[
+        updated_df["violation_code"] == 10, "violation_comment"
+    ] = "Issue corrected after reinspection."
+
+    # Load the changed records again.
+    load_inspections(updated_df, db_connection)
+
+    with db_connection.cursor() as cur:
+        # Verify the existing inspection was updated.
+        cur.execute(
+            "SELECT result FROM public.inspections WHERE inspection_id = 101"
+        )
+        assert cur.fetchone()[0] == "Pass"
+
+        # Verify the establishment was updated.
+        cur.execute(
+            """
+            SELECT facility_type
+            FROM public.establishments
+            WHERE street_address = %s
+            """,
+            ("5873 E OAK ST",),
+        )
+        assert cur.fetchone()[0] == "Grocery Store"
+
+        # Verify the violation comment was updated.
+        cur.execute(
+            """
+            SELECT comment
+            FROM public.inspection_violations
+            WHERE inspection_id = 101 AND violation_code = 10
+            """
+        )
+        assert cur.fetchone()[0] == "Issue corrected after reinspection."
+
+        # Verify UPSERT did not create duplicate records.
+        for table, expected in [
+            ("establishments", 2),
+            ("inspections", 2),
+            ("violations", 2),
+            ("inspection_violations", 2),
+        ]:
+            cur.execute(f"SELECT COUNT(*) FROM public.{table}")
+            assert cur.fetchone()[0] == expected
+
+def test_watermark_saved_after_load(db_connection):
+    timestamp = datetime(
+        2026, 11, 15, 10, 7, 21,
+        tzinfo=timezone.utc
+    )
+
+    # Load sample inspections and save the checkpoint.
+    load_inspections(
+        sample_df,
+        db_connection,
+        new_watermark=timestamp
+    )
+
+    # Verify the checkpoint was saved.
+    saved_watermark = get_watermark(db_connection)
+
+    assert saved_watermark == timestamp
+
+    # Verify the inspection records were also loaded.
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM public.inspections"
+        )
+        assert cur.fetchone()[0] == 2
+
+def test_watermark_failure_rolls_back_load(db_connection):
+    # An invalid timestamp should cause PostgreSQL to reject
+    # the watermark update after attempting to load records.
+    invalid_timestamp = "not-a-valid-timestamp"
+
+    with pytest.raises(psycopg2.Error):
+        load_inspections(
+            sample_df,
+            db_connection,
+            new_watermark=invalid_timestamp
+        )
+
+    # Verify the failed transaction did not save inspections.
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM public.inspections")
+        assert cur.fetchone()[0] == 0
+
+        cur.execute("SELECT COUNT(*) FROM public.establishments")
+        assert cur.fetchone()[0] == 0
+
+        cur.execute("SELECT COUNT(*) FROM public.etl_watermark")
+        assert cur.fetchone()[0] == 0
 
 def test_load_upsert(db_connection):
 
