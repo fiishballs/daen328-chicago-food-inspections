@@ -25,7 +25,7 @@ To remove the PostgreSQL volume and reload all data from scratch, use `docker co
 
 ## Database structure
 
-The database contains four tables: establishments, inspections, violations, and inspection_violations. The ER Diagram for the database is shown below.
+The database contains five tables: establishments, inspections, violations, inspection_violations and etl_watermark. The ER Diagram for the database is shown below.
 
 ![Database ERD](images/database-erd.png)
 
