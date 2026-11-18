@@ -26,17 +26,70 @@ def clean_inspection_dates(df):
 
     return cleaned
 
+# Ordered rules: first match wins, so more specific categories go first.
+# Use non-capturing groups (?:...) so pandas doesn't warn about match groups.
+FACILITY_RULES = [
+    ("Child Care", r"day\s*care|child(?:ren|ern)'?s?\b|\b1023\b|\b1584\b|\b1586\b"
+                   r"|\bkids?\b|\d+\s*mon\w*\s*to\s*\d+\s*y|after[\s-]*school|youth|boys and girls"),
+    ("Culinary School/Class", r"cooking|culinary|pastry school|teaching school|chef training"
+                              r"|kitchen demo|test kitchen"),
+    ("School", r"sch?o?hool|\bcollege\b|universit|\bcharter\b|\bcps\b|\bacademy\b|archdiocese"),
+    ("Care Facility", r"nursing|long[\s-]*term|assis+ted|supportive living|senior|adult\s*(?:day|family)"
+                      r"|rehab|hospital|drug treatment|shelter|hostel"),
+    ("Mobile/Vending", r"\bmobil(?:e|prepared)?\b|\bmfp\b|\bmfd\b|push\s*cart|pushcart|food truck"
+                       r"|^truck$|peddler|hot dog (?:cart|station)|dispenser|vending|kiosk|coffee cart"),
+    ("Commissary/Shared Kitchen", r"comm?i+a?s+a?ry|commiasary|shared kitchen|pop-up|incubator"
+                                  r"|church kitchen|main kitchen|employee kitchen|charity aid kitchen"),
+    ("Wholesale/Distribution", r"wholesale|distribut|warehouse|cold|storage|repackag|slaughter"
+                               r"|live poultry|poultry|prepackage|prepacaked|pre[\s-]*packaged|packaged food"),
+    ("Grocery/Market", r"grocery|supermarket|butcher|meat (?:market|packing)|fish market|produce"
+                       r"|farmer'?s market|\bdeli\b|food pantry|\bpantry\b|soup kitchen|general store"
+                       r"|dollar|urban farm|greenhouse|health food"),
+    ("Convenience/Gas Station", r"\bgas\b|conve?ni?e?nt|convnience|mini\s*mart|drug store|pharmacy|newsstand"
+                                r"|\bretail\b|\bstore\b|tobacco|gift shop"),
+    ("Catering/Banquet/Event", r"cater|banquet|event|\bvfw\b|room service|roof\s*top|riverwalk"
+                               r"|navy pier|stadium|golf course|concession"),
+    ("Bakery", r"bak(?:ery|e)|pastry|donut|doughnut"),
+    ("Restaurant", r"restaurant|restuarant|\brest\b|diner|cafe|cafeteria|dining|food hall|taqueria"
+                   r"|\bgrill\b|sushi|food booth|tent r|hot dog|kitchen|lounge|room"),
+    ("Bar/Liquor", r"\bbars?\b|tavern|liq[uo]+r|night\s*club|brewery|distillery|wine|hoo?ka|\btap room\b|shuffleboard"),
+    ("Coffee/Dessert/Candy", r"coffee|\btea\b|milk tea|ice\s*cream|gelato|paleteria|popcorn|candy|juice|smoothie"
+                             r"|frozen dessert|\bdessert|snack shop|donut"),
+    ("Health/Fitness/Nutrition", r"herbal|nutrition|shake|weight loss|gym|fitness|health|exercise|spa\b|salon"
+                                 r"|nail|massage|protein"),
+    ("Entertainment/Venue", r"theat(?:er|re)|movie|music venue|entertainment|museum|gallery|art center"
+                            r"|bowling|\bpool\b|club"),
+]
+
 
 def clean_facility_type(df):
-    """Fill missing facility types and standardize whitespace."""
+    """Fill missing facility types, standardize whitespace, and add a regex-derived category."""
     cleaned = df.copy()
 
     cleaned["facility_type"] = (
         cleaned["facility_type"]
         .astype("string")
+        .str.replace(r"\s+", " ", regex=True)   # collapse repeated whitespace ("COFFEE  SHOP")
         .str.strip()
         .replace("", pd.NA)
         .fillna("Unknown")
+    )
+
+    # Categorize via ordered regex rules; first match wins.
+    category = pd.Series(pd.NA, index=cleaned.index, dtype="string")
+    unassigned = cleaned["facility_type"].ne("Unknown")
+
+    for label, pattern in FACILITY_RULES:
+        hit = unassigned & cleaned["facility_type"].str.contains(
+            pattern, flags=re.IGNORECASE, regex=True, na=False
+        )
+        category = category.mask(hit, label)
+        unassigned &= ~hit
+
+    cleaned["facility_category"] = (
+        category
+        .mask(cleaned["facility_type"].eq("Unknown"), "Unknown")
+        .fillna("Other")
     )
 
     return cleaned
