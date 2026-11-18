@@ -420,3 +420,25 @@ def test_combine_duplicate_violation_comments():
 
     # Identical comments should not be repeated
     assert combined.count("Water-stained ceiling tiles") == 1
+def test_facility_category_classification():
+    sample = pd.DataFrame({
+        "facility_type": [
+            "Shared Kitchen User (Long Term)",
+            "Shared Kitchen User (Short Term)",
+            "Long Term Care",
+            "Long-Term Care",
+            "Long Term Care Facility",
+            "School",
+        ]
+    })
+
+    result = clean_facility_type(sample)
+
+    assert result["facility_category"].tolist() == [
+        "Commissary/Shared Kitchen",
+        "Commissary/Shared Kitchen",
+        "Care Facility",
+        "Care Facility",
+        "Care Facility",
+        "School",
+    ]

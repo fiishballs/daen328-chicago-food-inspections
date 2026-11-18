@@ -34,7 +34,7 @@ FACILITY_RULES = [
     ("Culinary School/Class", r"cooking|culinary|pastry school|teaching school|chef training"
                               r"|kitchen demo|test kitchen"),
     ("School", r"sch?o?hool|\bcollege\b|universit|\bcharter\b|\bcps\b|\bacademy\b|archdiocese"),
-    ("Care Facility", r"nursing|long[\s-]*term|assis+ted|supportive living|senior|adult\s*(?:day|family)"
+    ("Care Facility", r"nursing|long[\s-]*term[\s-]*care|assis+ted|supportive living|senior|adult\s*(?:day|family)"
                       r"|rehab|hospital|drug treatment|shelter|hostel"),
     ("Mobile/Vending", r"\bmobil(?:e|prepared)?\b|\bmfp\b|\bmfd\b|push\s*cart|pushcart|food truck"
                        r"|^truck$|peddler|hot dog (?:cart|station)|dispenser|vending|kiosk|coffee cart"),
