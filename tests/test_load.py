@@ -27,9 +27,11 @@ sample_df = pd.DataFrame([
         "state": "IL",
         "zip": "60284",
         "facility_type": "Restaurant",
+        "facility_category": "Restaurant",
         "risk": "Risk 2 (Medium)",
         "results": "Pass",
         "facility_type": "Restaurant",
+        "facility_category": "Restaurant",
         "latitude": 93.95050,
         "longitude": 29.53821,
         "violation_code": pd.NA,
@@ -45,6 +47,7 @@ sample_df = pd.DataFrame([
         "state": "IL",
         "zip": "60132",
         "facility_type": "Restaurant",
+        "facility_category": "Restaurant",
         "risk": "Risk 1 (High)",
         "results": "Fail",
         "latitude": 93.7382,
@@ -62,6 +65,7 @@ sample_df = pd.DataFrame([
         "state": "IL",
         "zip": "60132",
         "facility_type": "Restaurant",
+        "facility_category": "Restaurant",
         "risk": "Risk 1 (High)",
         "results": "Fail",
         "latitude": 93.7382,
@@ -304,3 +308,43 @@ def test_load_upsert(db_connection):
 
     cur.execute("SELECT comment FROM public.inspection_violations WHERE inspection_id = 101")
     assert cur.fetchone()[0] == "Manager corrected issue"
+def test_facility_category_upsert(db_connection):
+    # Load initial establishment data
+    load_inspections(sample_df, db_connection)
+
+    with db_connection.cursor() as cur:
+        cur.execute("""
+            SELECT facility_category
+            FROM public.establishments
+            WHERE name = %s AND street_address = %s
+        """, ("Cheesecake Factory", "9238 W CEDAR AVE"))
+
+        assert cur.fetchone()[0] == "Restaurant"
+
+    # Simulate an updated category
+    updated_df = sample_df.copy()
+    updated_df.loc[
+        updated_df["address"] == "9238 W CEDAR AVE",
+        "facility_category"
+    ] = "Catering/Banquet/Event"
+
+    # Run the loader again
+    load_inspections(updated_df, db_connection)
+
+    with db_connection.cursor() as cur:
+        cur.execute("""
+            SELECT facility_category
+            FROM public.establishments
+            WHERE name = %s AND street_address = %s
+        """, ("Cheesecake Factory", "9238 W CEDAR AVE"))
+
+        assert cur.fetchone()[0] == "Catering/Banquet/Event"
+
+        # The update must not create another establishment.
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM public.establishments
+            WHERE name = %s AND street_address = %s
+        """, ("Cheesecake Factory", "9238 W CEDAR AVE"))
+
+        assert cur.fetchone()[0] == 1

@@ -37,7 +37,7 @@ FACILITY_RULES = [
     ("Care Facility", r"nursing|long[\s-]*term[\s-]*care|assis+ted|supportive living|senior|adult\s*(?:day|family)"
                       r"|rehab|hospital|drug treatment|shelter|hostel"),
     ("Mobile/Vending", r"\bmobil(?:e|prepared)?\b|\bmfp\b|\bmfd\b|push\s*cart|pushcart|food truck"
-                       r"|^truck$|peddler|hot dog (?:cart|station)|dispenser|vending|kiosk|coffee cart"),
+                       r"|^truck$|peddler|hot dog (?:cart|station)|dispenser|vending(?!\s+commissary)|kiosk|coffee cart"),
     ("Commissary/Shared Kitchen", r"comm?i+a?s+a?ry|commiasary|shared kitchen|pop-up|incubator"
                                   r"|church kitchen|main kitchen|employee kitchen|charity aid kitchen"),
     ("Wholesale/Distribution", r"wholesale|distribut|warehouse|cold|storage|repackag|slaughter"

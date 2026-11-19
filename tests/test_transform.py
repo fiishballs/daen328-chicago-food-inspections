@@ -429,6 +429,8 @@ def test_facility_category_classification():
             "Long-Term Care",
             "Long Term Care Facility",
             "School",
+            "VENDING COMMISSARY",
+            "VENDING MACHINE",
         ]
     })
 
@@ -441,4 +443,6 @@ def test_facility_category_classification():
         "Care Facility",
         "Care Facility",
         "School",
+        "Commissary/Shared Kitchen",
+        "Mobile/Vending",
     ]
