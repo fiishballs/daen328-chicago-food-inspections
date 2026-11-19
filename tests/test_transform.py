@@ -80,6 +80,30 @@ def test_clean_facility_type():
     ]
 
 
+def test_clean_facility_categories():
+    sample = pd.DataFrame({
+        'facility_type': [
+            'Day Care Center',
+            'Grocery Store',
+            'Mobile Food Truck',
+            'Restaurant',
+            'Unrecognized Facility',
+            None,
+        ]
+    })
+
+    result = clean_facility_type(sample)
+
+    assert result['facility_category'].tolist() == [
+        'Child Care',
+        'Grocery/Market',
+        'Mobile/Vending',
+        'Restaurant',
+        'Other',
+        'Unknown',
+    ]
+
+
 def test_clean_coordinates():
     sample = pd.DataFrame({
         "latitude": [

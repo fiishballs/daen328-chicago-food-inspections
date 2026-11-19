@@ -297,8 +297,6 @@ def transform_data(df):
 
     duplicates_removed = rows_before_dedup - len(cleaned)
 
-    cleaned = remove_duplicate_inspections(cleaned)
-
     report = generate_quality_report(
         df,
         cleaned,
