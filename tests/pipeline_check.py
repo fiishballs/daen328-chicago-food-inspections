@@ -28,7 +28,7 @@ raw_df = pd.DataFrame(response.json())
 print("\nOriginal shape:", raw_df.shape)
 
 
-from etl.transform import clean_violations
+from transform import clean_violations
 
 # Examine repeated violation codes before deduplication
 expanded_df = clean_violations(raw_df)
