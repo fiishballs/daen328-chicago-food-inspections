@@ -61,7 +61,7 @@ def make_where(filters):
     params = {'start_date': filters['start'], 'end_date': filters['end']}
     add_in_filter(conditions, params, 'i.result', 'result', filters['results'])
     add_in_filter(conditions, params, 'i.risk', 'risk', filters['risks'])
-    if filters['facility'] != 'All facility types':
+    if filters['facility'] != 'All facility categories':
         conditions.append('e.facility_category = :facility')
         params['facility'] = filters['facility']
     if filters['zip'] != 'All ZIP codes':
@@ -129,7 +129,9 @@ with st.sidebar:
     selected_risks = st.multiselect(
         'Risk classifications', risk_choices, default=risk_choices
     )
-    facility = st.selectbox('Facility type', ['All facility types', *facility_choices])
+    facility = st.selectbox(
+        'Facility category', ['All facility categories', *facility_choices]
+    )
     zip_code = st.selectbox('ZIP code', ['All ZIP codes', *zip_choices])
     search = st.text_input(
         'Restaurant name contains', placeholder='Example: Pizza'
@@ -240,6 +242,13 @@ with geo_tab:
     if zip_rates.empty:
         st.info('Not enough inspections to calculate area failure rates.')
     else:
+        zip_rates['zip_code'] = (
+            zip_rates['zip_code']
+            .astype('string')
+            .str.strip()
+            .str.replace(r'\.0$', '', regex=True)
+            .str.zfill(5)
+        )
         zip_rates['failure_rate'] = zip_rates['failure_rate'].astype(float)
         zip_rates = zip_rates.sort_values('failure_rate')
         zip_figure = px.bar(
@@ -253,6 +262,11 @@ with geo_tab:
         )
         zip_figure.update_traces(
             texttemplate='%{text:.1f}%', textposition='outside', marker_color='#C73E1D'
+        )
+        zip_figure.update_yaxes(
+            type='category',
+            categoryorder='array',
+            categoryarray=zip_rates['zip_code'].tolist(),
         )
         st.plotly_chart(zip_figure, width='stretch')
 
@@ -339,7 +353,7 @@ with trends_tab:
             )
             st.plotly_chart(risk_figure, width='stretch')
 
-        st.subheader('Which facility categories fail inspections more frequently?')
+    st.subheader('Which facility categories fail inspections more frequently?')
     st.caption(
         'Failure rates are calculated by standardized facility category. '
         'Only categories with at least five matching inspections are shown.'
