@@ -62,7 +62,7 @@ def make_where(filters):
     add_in_filter(conditions, params, 'i.result', 'result', filters['results'])
     add_in_filter(conditions, params, 'i.risk', 'risk', filters['risks'])
     if filters['facility'] != 'All facility types':
-        conditions.append('e.facility_type = :facility')
+        conditions.append('e.facility_category = :facility')
         params['facility'] = filters['facility']
     if filters['zip'] != 'All ZIP codes':
         conditions.append('e.zip = :zip')
@@ -97,9 +97,9 @@ try:
         'risk',
     )
     facility_choices = options(
-        'SELECT DISTINCT facility_type FROM establishments '
-        'WHERE facility_type IS NOT NULL ORDER BY facility_type',
-        'facility_type',
+        'SELECT DISTINCT facility_category FROM establishments '
+        'WHERE facility_category IS NOT NULL ORDER BY facility_category',
+        'facility_category',
     )
     zip_choices = options(
         'SELECT DISTINCT zip FROM establishments WHERE zip IS NOT NULL ORDER BY zip',
@@ -339,40 +339,51 @@ with trends_tab:
             )
             st.plotly_chart(risk_figure, width='stretch')
 
-    st.subheader('Which facility types fail inspections more frequently?')
-    st.caption('Only facility types with at least five matching inspections are shown.')
+        st.subheader('Which facility categories fail inspections more frequently?')
+    st.caption(
+        'Failure rates are calculated by standardized facility category. '
+        'Only categories with at least five matching inspections are shown.'
+    )
+
     facility_rates = query(f'''
-        SELECT COALESCE(e.facility_type, 'Unknown') facility_type,
-               COUNT(*) inspections,
-               COUNT(*) FILTER (WHERE LOWER(i.result) = 'fail') failures,
-               100.0 * AVG((LOWER(i.result) = 'fail')::int) failure_rate
+        SELECT COALESCE(e.facility_category, 'Unknown') AS facility_category,
+               COUNT(*) AS inspections,
+               COUNT(*) FILTER (WHERE LOWER(i.result) = 'fail') AS failures,
+               100.0 * AVG((LOWER(i.result) = 'fail')::int) AS failure_rate
         {facts} WHERE {where}
-        GROUP BY COALESCE(e.facility_type, 'Unknown')
+        GROUP BY COALESCE(e.facility_category, 'Unknown')
         HAVING COUNT(*) >= 5
-        ORDER BY failure_rate DESC, inspections DESC LIMIT 15
+        ORDER BY failure_rate DESC, inspections DESC
+        LIMIT 18
     ''', params)
 
     if facility_rates.empty:
-        st.info('Not enough inspections to compare facility types.')
+        st.info('Not enough inspections to compare facility categories.')
     else:
         facility_rates['failure_rate'] = facility_rates['failure_rate'].astype(float)
         facility_rates = facility_rates.sort_values('failure_rate')
+
         facility_figure = px.bar(
             facility_rates,
             x='failure_rate',
-            y='facility_type',
+            y='facility_category',
             orientation='h',
             text='failure_rate',
             hover_data=['inspections', 'failures'],
             labels={
                 'failure_rate': 'Failure rate (%)',
-                'facility_type': 'Facility type',
+                'facility_category': 'Facility category',
             },
         )
+
         facility_figure.update_traces(
-            texttemplate='%{text:.1f}%', textposition='outside', marker_color='#4C78A8'
+            texttemplate='%{text:.1f}%',
+            textposition='outside',
+            marker_color='#4C78A8',
         )
-        facility_figure.update_layout(height=520)
+
+        facility_figure.update_layout(height=600)
+
         st.plotly_chart(facility_figure, width='stretch')
 
 
