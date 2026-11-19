@@ -54,17 +54,29 @@ def load_inspections(df, conn, new_watermark=None):
         with conn.cursor() as cur:
 
             # establishments table
-            establishments = df[["aka_name", "address", "city", "state", "zip", "facility_type",
-                                 "latitude", "longitude"]].drop_duplicates(["aka_name", "address"])
+            establishments = df[
+                [
+                    "aka_name",
+                    "address",
+                    "city",
+                    "state",
+                    "zip",
+                    "facility_type",
+                    "facility_category",
+                    "latitude",
+                    "longitude",
+                ]
+            ].drop_duplicates(["aka_name", "address"])
             for _, row in establishments.iterrows():
                 cur.execute(
                     '''INSERT INTO public.establishments (name, street_address, city, state, zip, 
-                       facility_type, latitude, longitude) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                       facility_type, facility_category, latitude, longitude) VALUES (%s, %s, %s, %s, %s,%s, %s, %s, %s)
                        ON CONFLICT (name, street_address) DO UPDATE SET
                             city = EXCLUDED.city,
                             state = EXCLUDED.state,
                             zip = EXCLUDED.zip,
                             facility_type = EXCLUDED.facility_type,
+                            facility_category = EXCLUDED.facility_category,
                             latitude = EXCLUDED.latitude,
                             longitude = EXCLUDED.longitude
                        WHERE
@@ -72,10 +84,19 @@ def load_inspections(df, conn, new_watermark=None):
                             establishments.state IS DISTINCT FROM EXCLUDED.state OR
                             establishments.zip IS DISTINCT FROM EXCLUDED.zip OR
                             establishments.facility_type IS DISTINCT FROM EXCLUDED.facility_type OR
+                            establishments.facility_category IS DISTINCT FROM EXCLUDED.facility_category OR
                             establishments.latitude IS DISTINCT FROM EXCLUDED.latitude OR
                             establishments.longitude IS DISTINCT FROM EXCLUDED.longitude;''',
-                    (row["aka_name"], clean(row["address"]), clean(row["city"]), clean(row["state"]),
-                     clean(row["zip"]), clean(row["facility_type"]), clean(row["latitude"]), clean(row["longitude"])))
+                    (row["aka_name"],
+                     clean(row["address"]),
+                     clean(row["city"]),
+                     clean(row["state"]),
+                     clean(row["zip"]),
+                     clean(row["facility_type"]),
+                     clean(row["facility_category"]),
+                     clean(row["latitude"]),
+                     clean(row["longitude"]),
+                     ))
 
             # inspections table
             cur.execute("SELECT name, street_address, establishment_id FROM public.establishments;")

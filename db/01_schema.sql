@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS public.establishments
     state character varying(2),
     zip character varying(5),
     facility_type character varying(50),
+    facility_category character varying(50),
     latitude numeric,
     longitude numeric,
     PRIMARY KEY (establishment_id)
