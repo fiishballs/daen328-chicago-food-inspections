@@ -140,6 +140,19 @@ def clean_name(df):
     return cleaned
 
 
+def clean_address(df):
+    """Standardize street address."""
+    cleaned = df.copy()
+
+    cleaned["address"] = (
+        cleaned["address"]
+        .astype("string")
+        .str.strip()
+        .replace("", pd.NA)
+    )
+
+    return cleaned
+
 
 def clean_violations(df):
     """Split violations into rows and extract code, title, and comment."""
@@ -205,28 +218,8 @@ def clean_violations(df):
     cleaned[
         ["violation_code", "violation_title", "violation_comment"]
     ] = cleaned["violations"].apply(parse_violations)
-
-    return cleaned
-
-    def parse_violations(violation):
-        if pd.isna(violation) or violation == "":
-            return pd.Series({"violation_code": pd.NA, "violation_title": pd.NA, "violation_comment": pd.NA})
     
-        code = re.search(r'\d+', violation)
-        comment_start = re.search("comments:", violation, flags=re.IGNORECASE)
-        if comment_start:
-            violation_title = violation[code.end()+1 : comment_start.start() - 3].strip().title()
-            comment = violation[comment_start.end():].strip().capitalize()
-        else:
-            violation_title = violation[code.end()+1 :].strip().title()
-            comment = pd.NA
-    
-        return pd.Series({"violation_code": code.group(), "violation_title": violation_title, "violation_comment": comment})
-
-    cleaned[["violation_code", "violation_title", "violation_comment"]] = cleaned["violations"].apply(parse_violations)
     return cleaned
-
-
 
 
 def remove_duplicate_inspections(df):
@@ -290,6 +283,7 @@ def transform_data(df):
     cleaned = clean_coordinates(cleaned)
     cleaned = clean_categories(cleaned)
     cleaned = clean_name(cleaned)
+    cleaned = clean_address(cleaned)
     
     cleaned = clean_violations(cleaned)
     rows_before_dedup = len(cleaned)
@@ -359,7 +353,8 @@ def generate_quality_report(original_df, cleaned_df, duplicates_removed=None):
         "longitude",
         "risk",
         "results",
-        "aka_name"
+        "aka_name",
+        "address"
     ]
 
     missing_summary = {}
