@@ -18,6 +18,8 @@ DB_PORT = os.environ["DB_PORT"]
 DB_PARAMS = {"dbname": DB_NAME, "user": DB_USER, "password": DB_PASSWORD,
              "host": DB_HOST, "port": DB_PORT}
 
+DATA_TABLES = ["establishments", "inspections", "violations", "inspection_violations"]
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,7 @@ def clean(value):
     if hasattr(value, "item"):
         return value.item()
     return value
+
 
 def get_watermark(conn):
     """Return the last successfully loaded API update timestamp."""
@@ -49,24 +52,52 @@ def get_watermark(conn):
 
     return watermark
 
+
+def update_table_counts(insert_counts, update_counts, table, result):
+    """Updates actions counts for tables."""
+    if result and result[0] == 1:
+        insert_counts[table] = insert_counts[table] + 1
+    elif result and result[0] != 1:
+        update_counts[table] = update_counts[table] + 1
+
+    return (insert_counts, update_counts)
+
+
+def get_load_report(insert_counts, update_counts):
+    """Returns loading report for logs with inserted and updated counts."""
+    for t in DATA_TABLES:
+        logger.info(f"{t}: {insert_counts[t]} inserted, {update_counts[t]} updated")
+
+
 def load_inspections(df, conn, new_watermark=None):
+    insert_counts = {
+        "establishments": 0,
+        "inspections": 0,
+        "violations": 0,
+        "inspection_violations": 0
+    }
+    update_counts = {
+        "establishments": 0,
+        "inspections": 0,
+        "violations": 0,
+        "inspection_violations": 0
+    }
+
     with conn:
         with conn.cursor() as cur:
 
             # establishments table
-            establishments = df[
-                [
-                    "aka_name",
-                    "address",
-                    "city",
-                    "state",
-                    "zip",
-                    "facility_type",
-                    "facility_category",
-                    "latitude",
-                    "longitude",
-                ]
-            ].drop_duplicates(["aka_name", "address"])
+            establishments = df[[
+                "aka_name",
+                "address",
+                "city",
+                "state",
+                "zip",
+                "facility_type",
+                "facility_category",
+                "latitude",
+                "longitude",
+            ]].drop_duplicates(["aka_name", "address"])
             for _, row in establishments.iterrows():
                 cur.execute(
                     '''INSERT INTO public.establishments (name, street_address, city, state, zip, 
@@ -86,7 +117,8 @@ def load_inspections(df, conn, new_watermark=None):
                             establishments.facility_type IS DISTINCT FROM EXCLUDED.facility_type OR
                             establishments.facility_category IS DISTINCT FROM EXCLUDED.facility_category OR
                             establishments.latitude IS DISTINCT FROM EXCLUDED.latitude OR
-                            establishments.longitude IS DISTINCT FROM EXCLUDED.longitude;''',
+                            establishments.longitude IS DISTINCT FROM EXCLUDED.longitude
+                       RETURNING (xmax =0) AS inserted;''',
                     (row["aka_name"],
                      clean(row["address"]),
                      clean(row["city"]),
@@ -96,7 +128,14 @@ def load_inspections(df, conn, new_watermark=None):
                      clean(row["facility_category"]),
                      clean(row["latitude"]),
                      clean(row["longitude"]),
-                     ))
+                    ))
+
+                insert_counts, update_counts = update_table_counts(
+                    insert_counts,
+                    update_counts,
+                    "establishments",
+                    cur.fetchone()
+                )
 
             # inspections table
             cur.execute("SELECT name, street_address, establishment_id FROM public.establishments;")
@@ -106,7 +145,7 @@ def load_inspections(df, conn, new_watermark=None):
             inspections = df[["inspection_id", "inspection_date", "risk", "results", "aka_name", "address"]] \
                                 .drop_duplicates("inspection_id")
             for _, row in inspections.iterrows():
-                est_id = establishment_ids[(row["aka_name"], row["address"])]
+                est_id = establishment_ids[(row["aka_name"], clean(row["address"]))]
                 cur.execute(
                     '''INSERT INTO public.inspections (inspection_id, establishment_id, 
                        inspection_date, risk, result) VALUES (%s, %s, %s, %s, %s)
@@ -119,8 +158,16 @@ def load_inspections(df, conn, new_watermark=None):
                             inspections.establishment_id IS DISTINCT FROM EXCLUDED.establishment_id OR
                             inspections.inspection_date IS DISTINCT FROM EXCLUDED.inspection_date OR
                             inspections.risk IS DISTINCT FROM EXCLUDED.risk OR
-                            inspections.result IS DISTINCT FROM EXCLUDED.result;''',
+                            inspections.result IS DISTINCT FROM EXCLUDED.result
+                       RETURNING (xmax = 0) AS inserted;''',
                     (row["inspection_id"], est_id, row["inspection_date"], clean(row["risk"]), row["results"]))
+
+                insert_counts, update_counts = update_table_counts(
+                    insert_counts,
+                    update_counts,
+                    "inspections",
+                    cur.fetchone()
+                )
 
             # violations table
             violations = df[["violation_code", "violation_title"]].dropna().drop_duplicates("violation_code")
@@ -130,8 +177,16 @@ def load_inspections(df, conn, new_watermark=None):
                        VALUES (%s, %s) ON CONFLICT (violation_code) DO UPDATE SET
                             description = EXCLUDED.description
                        WHERE
-                            violations.description IS DISTINCT FROM EXCLUDED.description;''',
-                    (row["violation_code"], row["violation_title"]))
+                            violations.description IS DISTINCT FROM EXCLUDED.description
+                       RETURNING (xmax = 0) AS inserted;''',
+                    (row["violation_code"], clean(row["violation_title"])))
+                
+                insert_counts, update_counts = update_table_counts(
+                    insert_counts,
+                    update_counts,
+                    "violations",
+                    cur.fetchone()
+                )
 
             # inspection_violations table
             for _, row in df.dropna(subset=["violation_code"]).iterrows():
@@ -140,8 +195,16 @@ def load_inspections(df, conn, new_watermark=None):
                        VALUES (%s, %s, %s) ON CONFLICT (inspection_id, violation_code) DO UPDATE SET
                             comment = EXCLUDED.comment
                        WHERE
-                            inspection_violations.comment IS DISTINCT FROM EXCLUDED.comment;''',
+                            inspection_violations.comment IS DISTINCT FROM EXCLUDED.comment
+                       RETURNING (xmax = 0) AS inserted;''',
                     (row["inspection_id"], row["violation_code"], clean(row["violation_comment"])))
+
+                insert_counts, update_counts = update_table_counts(
+                    insert_counts,
+                    update_counts,
+                    "inspection_violations",
+                    cur.fetchone()
+                )
                 
             # Save checkpoint in the same transaction as the data load.
             if new_watermark is not None:
@@ -160,8 +223,9 @@ def load_inspections(df, conn, new_watermark=None):
                     ("chicago_food_inspections", new_watermark),
                 )
 
-
     logger.info("Load finished and committed.")
+    return (insert_counts, update_counts)
+
 
 def main():
     conn = psycopg2.connect(**DB_PARAMS)
@@ -247,21 +311,14 @@ def main():
             )
 
         if valid.empty:
-            raise ValueError(
-                "No valid rows to load. Watermark will not advance."
-            )
+            raise ValueError("No valid rows to load. Watermark will not advance.")
 
         # Step 5: Load data and checkpoint in one transaction.
-        load_inspections(
-            valid,
-            conn,
-            new_watermark=new_watermark
-        )
+        insert_counts, update_counts = load_inspections(valid, conn, new_watermark=new_watermark)
 
-        logger.info(
-            "ETL completed. New watermark: %s",
-            new_watermark
-        )
+        get_load_report(insert_counts, update_counts)
+        logger.info("ETL completed. New watermark: %s", new_watermark)
+
 
     finally:
         conn.close()
