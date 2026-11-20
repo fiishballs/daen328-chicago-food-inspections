@@ -9,12 +9,11 @@ from transform import (
     clean_coordinates,
     clean_categories,
     clean_name,
+    clean_address,
     clean_violations,
     remove_duplicate_inspections,
     transform_data,
-    generate_quality_report,
-
-    
+    generate_quality_report,    
 )
 
 
@@ -178,6 +177,24 @@ def test_clean_name():
     assert pd.isna(result["aka_name"].iloc[3])
 
 
+def test_clean_address():
+    sample = pd.DataFrame({
+        "address": [
+            " 9392 8TH AVE ",
+            "2031 OAK ST",
+            "",
+            None
+        ]
+    })
+
+    result = clean_address(sample)
+
+    assert result["address"].iloc[0] == "9392 8TH AVE"
+    assert result["address"].iloc[1] == "2031 OAK ST"
+    assert pd.isna(result["address"].iloc[2])
+    assert pd.isna(result["address"].iloc[3])
+
+
 def test_remove_duplicate_inspections():
     sample = pd.DataFrame({
         "inspection_id": [1001, 1002, 1001, 1003],
@@ -209,6 +226,7 @@ def test_transform_data():
             None,
             " Restaurant "
         ],
+        "address": ["9480 3RD ST ", " 1843 WASHINGTON AVE ", "9480 3RD ST"],
         "latitude": ["41.89", None, "41.89"],
         "longitude": ["-87.67", None, "-87.67"],
         "risk": ["RISK 1 (HIGH)", "risk 2 (medium)", "RISK 1 (HIGH)"],
@@ -233,6 +251,11 @@ def test_transform_data():
     assert result["aka_name"].tolist() == [
         "Popeyes",
         "Pizza Hut"
+    ]
+
+    assert result["address"].tolist() == [
+        "1843 WASHINGTON AVE",
+        "9480 3RD ST"
     ]
 
     assert result["facility_type"].tolist() == [
@@ -301,7 +324,8 @@ def test_remove_duplicates_with_missing_ids():
 def test_transform_data_logging(caplog):
     sample = pd.DataFrame({
         "inspection_id": ["1001", "1001"],
-        "aka_name": ["Cheesecake Factory", "McDonalds"],
+        "aka_name": ["Cheesecake Factory", "Cheesecake Factory"],
+        "address": ["5813 GEORGIA DR", "5813 GEORGIA DR"],
         "inspection_date": ["2026-10-14", "2026-10-14"],
         "facility_type": ["Restaurant", "Restaurant"],
         "latitude": ["41.89", "41.89"],
@@ -368,6 +392,7 @@ def test_quality_report_after_violation_expansion(caplog):
             "2026-10-14"
         ],
         "aka_name": ["Restaurant A", "Restaurant B", "Restaurant A"],
+        "address": ["1234 STREET", "9876 AVENUE", "1234 STREET"],
         "facility_type": ["Restaurant"] * 3,
         "latitude": ["41.89"] * 3,
         "longitude": ["-87.67"] * 3,
