@@ -25,7 +25,7 @@ To remove the PostgreSQL volume and reload all data from scratch, use `docker co
 
 ## Database structure
 
-The database contains five tables: establishments, inspections, violations, inspection_violations and etl_watermark. The ER Diagram for the database is shown below.
+The database contains five tables: establishments, inspections, violations, inspection_violations and etl_watermark. The establishments table contains information about the establishments undergoing inspections including their name, location, and facility type (e.g. Grocery Store, Gas Station, etc.). The inspections table contains the inspection ID assigned by the data source, inspection date, result, and more. The violations table includes all city codes that are violated at least once in the dataset, including both the numeric code and a brief description. The inspection_values table serves as a junction table between inspections and violations, and it lists all the violations for a specific inspection along with relevant comments. The last table is etl_watermark which stores the most recent successful load of the database for use during incremental data extraction. The ER Diagram for the database is shown below.
 
 ![Database ERD](images/database-erd.png)
 
